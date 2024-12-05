@@ -1,0 +1,1 @@
+SELECT EmployeeName FROM EMPLOYEES_RAW
