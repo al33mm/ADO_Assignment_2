@@ -1,0 +1,817 @@
+-- This is for reference
+select * from customers_raw
+select * from employee_raw
+select * from inventory_transactions_raw
+select * from orders_raw
+select * from order_details_raw
+select * from payments_raw
+select * from payment_methods_raw
+select * from products_raw
+select * from purchase_orders_raw
+select * from shipping_methods_raw
+select * from suppliers_raw
+
+
+-- I want to understand the data and see what tables could be joined together for simplicity
+
+-- I performed a quick analysis:
+
+--The order_details_raw table can be linked to the orders_raw table using the orderid key.
+
+SELECT
+  *
+FROM
+  order_details_raw
+  JOIN orders_raw ON order_details_raw.orderid = orders_raw.orderid;
+
+  -- There are a 487 blank cells / NULLS on 'SHIPPINGMETHODID'
+
+
+
+
+
+
+--The orders_raw table can be linked to the customers_raw table using the customerid key.
+
+SELECT
+  *
+FROM
+  orders_raw
+  JOIN customers_raw ON orders_raw.customerid = customers_raw.customerid;
+
+  -- There are 8 rows where 'SHIPPINGMETHODID' is blank / NULL
+  -- Moscow is the region with most customers, with over 1,434 customers
+  -- Yekaterinhurgh follows behind with 100 customers
+  -- Majority of the Customer Class are Large-Scale Wholescalers-1 type with over 1,028
+  -- Majority of LeadSouce for product sales are from Referral by the Central Office, couple of columns have NULL LeadSource
+
+  
+--Calculate the total number of orders per customer
+
+SELECT
+  customers_raw.customerid,
+  COUNT(orders_raw.orderid) as total_orders
+FROM
+  orders_raw
+  JOIN customers_raw ON orders_raw.customerid = customers_raw.customerid
+GROUP BY
+  customers_raw.customerid;
+
+
+--Calculate the average order value per customer
+
+SELECT
+  customers_raw.customerid,
+  AVG(orders_raw.freightcharge) as avg_order_value
+FROM
+  orders_raw
+  JOIN customers_raw ON orders_raw.customerid = customers_raw.customerid
+GROUP BY
+  customers_raw.customerid;
+
+
+--Calculate the total sales per customer
+
+SELECT
+  customers_raw.customerid,
+  SUM(orders_raw.freightcharge) as total_sales
+FROM
+  orders_raw
+  JOIN customers_raw ON orders_raw.customerid = customers_raw.customerid
+GROUP BY
+  customers_raw.customerid;
+  
+
+
+
+
+
+
+
+  
+--The orders_raw table can be linked to the employee_raw table using the employeeid key.
+SELECT
+  *
+FROM
+  orders_raw
+  JOIN employee_raw ON orders_raw.employeeid = employee_raw.employeeid;
+
+  -- Again, 8 rows exist where its SHIPPINGMETHODID are NULL
+
+  -- average order value per employee
+  SELECT
+  employee_raw.employeeid,
+  AVG(orders_raw.freightcharge) as avg_order_value
+FROM
+  orders_raw
+  JOIN employee_raw ON orders_raw.employeeid = employee_raw.employeeid
+GROUP BY
+  employee_raw.employeeid;
+
+
+  -- total number or orders per employee
+  SELECT
+  employee_raw.employeeid,
+  COUNT(orders_raw.orderid) as total_orders
+FROM
+  orders_raw
+  JOIN employee_raw ON orders_raw.employeeid = employee_raw.employeeid
+GROUP BY
+  employee_raw.employeeid;
+
+
+  -- total sales per employee
+
+SELECT
+  employee_raw.employeeid,
+  SUM(orders_raw.freightcharge) as total_sales
+FROM
+  orders_raw
+  JOIN employee_raw ON orders_raw.employeeid = employee_raw.employeeid
+GROUP BY
+  employee_raw.employeeid;
+
+
+
+
+
+
+
+
+
+
+
+
+--The orders_raw table can be linked to the shipping_methods_raw table using the shippingmethodid key.
+--The payments_raw table can be linked to the orders_raw table using the orderid key.
+--The payments_raw table can be linked to the payment_methods_raw table using the paymentmethodid key.
+--The inventory_transactions_raw table can be linked to the products_raw table using the productid key.
+--The products_raw table can be linked to the suppliers_raw table using the supplierid key (although this key is not present in the provided schema, it's a common link in such databases).
+
+
+--Hakim's Code
+
+
+DESCRIBE TABLE CUSTOMERS_RAW;
+DESCRIBE TABLE EMPLOYEE_RAW;
+DESCRIBE TABLE INVENTORY_TRANSACTIONS_RAW;
+DESCRIBE TABLE ORDER_DETAILS_RAW;
+DESCRIBE TABLE ORDERS_RAW;
+DESCRIBE TABLE PAYMENT_METHODS_RAW;
+DESCRIBE TABLE PRODUCTS_RAW;
+DESCRIBE TABLE PURCHASE_ORDERS_RAW;
+DESCRIBE TABLE SHIPPING_METHODS_RAW;
+DESCRIBE TABLE SUPPLIERS_RAW;
+DESCRIBE TABLE PAYMENTS_RAW;
+
+
+--Hakim
+
+--Replacing Missing Values
+UPDATE CUSTOMERS_RAW
+SET LeadSource = 'Unknown'
+WHERE LeadSource IS NULL;
+
+UPDATE CUSTOMERS_RAW
+SET Region = UPPER(Region);
+UPDATE ORDERS_RAW
+SET ShippingMethodID = 1
+WHERE ShippingMethodID IS NULL;
+
+UPDATE PRODUCTS_RAW
+SET Color = 'Unknown'
+WHERE Color IS NULL;
+
+UPDATE PRODUCTS_RAW
+SET ModelDescription = 'Unknown'
+WHERE ModelDescription IS NULL;
+
+UPDATE PRODUCTS_RAW
+SET Size = 'Unknown'
+WHERE Size IS NULL;
+
+UPDATE PURCHASE_ORDERS_RAW
+SET ShippingMethodID = 1
+WHERE ShippingMethodID IS NULL;
+
+UPDATE PAYMENTS_RAW
+SET PaymentAmount = 0
+WHERE PaymentAmount IS NULL;
+
+UPDATE PAYMENTS_RAW
+SET PaymentMethodID = (
+    SELECT PaymentMethodID
+    FROM PAYMENTS_RAW
+    GROUP BY PaymentMethodID
+    ORDER BY COUNT(*) DESC
+    LIMIT 1
+)
+WHERE PaymentMethodID IS NULL;
+
+
+
+
+
+
+
+--Check for duplicated Employee name
+SELECT EmployeeName, COUNT(*)
+FROM EMPLOYEE_RAW
+GROUP BY EmployeeName
+HAVING COUNT(*) > 1;
+
+
+
+
+--Replace Missing Values ID with 0
+UPDATE INVENTORY_TRANSACTIONS_RAW
+SET PurchaseOrderID = 0
+WHERE PurchaseOrderID IS NULL;
+
+UPDATE INVENTORY_TRANSACTIONS_RAW
+SET QuantityOrdered = 0
+WHERE QuantityOrdered IS NULL;
+
+UPDATE INVENTORY_TRANSACTIONS_RAW
+SET QuantityReceived = 0
+WHERE QuantityReceived IS NULL;
+
+
+--Join Orders, CUstomers and Employees
+
+CREATE OR REPLACE VIEW OrdersWithCustomerEmployee AS
+SELECT
+    o.OrderID,
+    o.OrderDate,
+    o.ShipDate,
+    o.FreightCharge,
+    c.CustomerName,
+    c.Region,
+    c.Country,
+    e.EmployeeName
+FROM
+    ORDERS_RAW o
+    JOIN CUSTOMERS_RAW c ON o.CustomerID = c.CustomerID
+    JOIN EMPLOYEE_RAW e ON o.EmployeeID = e.EmployeeID;
+
+
+
+
+--Join Order Details and Products
+
+CREATE OR REPLACE VIEW SalesByProduct AS
+SELECT
+    od.OrderDetailID,
+    od.OrderID,
+    p.ProductName,
+    p.Category,
+    p.Weight,
+    p.IsHeavy,
+    od.QuantitySold,
+    od.UnitSalesPrice,
+    od.TotalValue
+FROM
+    ORDER_DETAILS_RAW od
+    JOIN PRODUCTS_RAW p ON od.ProductID = p.ProductID;
+
+
+    
+
+--Join Payments with Orders
+
+CREATE OR REPLACE VIEW PaymentsByOrder AS
+SELECT
+    p.PaymentID,
+    p.OrderID,
+    p.PaymentDate,
+    pm.PaymentMethod,
+    p.PaymentAmount,
+    o.CustomerID,
+    c.CustomerName
+FROM
+    PAYMENTS_RAW p
+    JOIN PAYMENT_METHODS_RAW pm ON p.PaymentMethodID = pm.PaymentMethodID
+    JOIN ORDERS_RAW o ON p.OrderID = o.OrderID
+    JOIN CUSTOMERS_RAW c ON o.CustomerID = c.CustomerID;
+
+
+
+
+--Analyse Inventory Transactions
+
+CREATE OR REPLACE VIEW InventoryAnalysis AS
+SELECT
+    it.TransactionID,
+    it.ProductID,
+    p.ProductName,
+    it.QuantityOrdered,
+    it.QuantityReceived,
+    it.NetQuantity,
+    it.TransactionDate
+FROM
+    INVENTORY_TRANSACTIONS_RAW it
+    JOIN PRODUCTS_RAW p ON it.ProductID = p.ProductID;
+
+
+    
+
+--Aggregate Sales by Region
+
+CREATE OR REPLACE VIEW SalesByRegion AS
+SELECT
+    c.Region,
+    SUM(od.TotalValue) AS TotalSales
+FROM
+    ORDERS_RAW o
+    JOIN CUSTOMERS_RAW c ON o.CustomerID = c.CustomerID
+    JOIN ORDER_DETAILS_RAW od ON o.OrderID = od.OrderID
+GROUP BY
+    c.Region;
+
+    
+
+
+--Aggregate  Monthly Sales
+
+CREATE OR REPLACE VIEW MonthlySales AS
+SELECT
+    DATE_TRUNC('month', o.OrderDate) AS SalesMonth,
+    SUM(od.TotalValue) AS MonthlySales
+FROM
+    ORDERS_RAW o
+    JOIN ORDER_DETAILS_RAW od ON o.OrderID = od.OrderID
+GROUP BY
+    SalesMonth
+ORDER BY
+    SalesMonth;
+
+
+
+--Join Purchase Order with Suppliers
+
+CREATE OR REPLACE VIEW PurchaseOrdersBySupplier AS
+SELECT
+    po.PurchaseOrderID,
+    po.OrderDate,
+    po.ShippingMethodID,
+    sm.ShippingMethod,
+    s.SupplierName,
+    po.EmployeeID,
+    e.EmployeeName
+FROM
+    PURCHASE_ORDERS_RAW po
+    JOIN SHIPPING_METHODS_RAW sm ON po.ShippingMethodID = sm.ShippingMethodID
+    JOIN SUPPLIERS_RAW s ON po.SupplierID = s.SupplierID
+    JOIN EMPLOYEE_RAW e ON po.EmployeeID = e.EmployeeID;
+
+--Validate
+SELECT * FROM OrdersWithCustomerEmployee LIMIT 10;
+SELECT * FROM SalesByProduct LIMIT 10;
+
+
+
+
+CREATE OR REPLACE VIEW SalesAnalysis AS
+SELECT *
+FROM OrdersWithCustomerEmployee; 
+
+
+
+
+
+
+--as Aleem, I will be ensuring that the first 6 tables are all prepped and created as ###_cleaned tables, ready for use
+
+
+select * from CUSTOMERS_RAW
+--this table looks alright, so we can streightaway rename it as 'CUSTOMERS_CLEANED'.
+ALTER TABLE CUSTOMERS_RAW RENAME TO CUSTOMERS_CLEANED;
+select * from customers_cleaned  --this is the final customer table
+
+
+select * from employee_raw
+ALTER TABLE EMPLOYEE_RAW RENAME TO EMPLOYEE_CLEANED;
+select * from employee_cleaned   --this is the final employee table
+
+
+select * from inventory_transactions_raw
+
+-- Step 1: Create a cleaned version of the table without unnecessary columns
+CREATE OR REPLACE TABLE INVENTORY_TRANSACTIONS_CLEANED AS
+SELECT
+    TransactionID,  -- Keep, as it is a primary identifier
+    ProductID,      -- Keep, as it is critical for product identification
+    COALESCE(PurchaseOrderID, 'Unknown') AS PurchaseOrderID, -- Replace NULL with 'Unknown'
+    COALESCE(TransactionDate, TO_DATE('1900-01-01', 'YYYY-MM-DD')) AS TransactionDate, -- Replace NULL with placeholder date
+    COALESCE(UnitPurchasePrice, '0') AS UnitPurchasePrice,   -- Replace NULL with '0' (string type)
+    COALESCE(QuantityOrdered, '0') AS QuantityOrdered,       -- Replace NULL with '0' (string type)
+    COALESCE(QuantityReceived, '0') AS QuantityReceived,     -- Replace NULL with '0' (string type)
+    COALESCE(QuantityMissing, '0') AS QuantityMissing,       -- Replace NULL with '0' (string type)
+    COALESCE(CAST(QuantityReceived AS FLOAT) - CAST(QuantityOrdered AS FLOAT), 0.0) AS NetQuantity -- Calculate NetQuantity
+FROM INVENTORY_TRANSACTIONS_RAW
+WHERE 
+    NOT (
+        MissingID IS NULL -- Drop MissingID column because it has no meaningful data
+    );
+
+-- Step 2: Verify the cleaned data
+SELECT *
+FROM INVENTORY_TRANSACTIONS_CLEANED
+LIMIT 10;
+
+-- Step 3: Add indexes or constraints (optional)
+-- For example, if TransactionID should be unique:
+ALTER TABLE INVENTORY_TRANSACTIONS_CLEANED ADD PRIMARY KEY (TransactionID);  --this is the final inventory transactions ID although there are still issues to be fixed.
+
+
+select * from orders_raw
+
+
+-- Step 1: Create a cleaned version of the table
+CREATE OR REPLACE TABLE ORDERS_CLEANED AS
+SELECT
+    ORDERID,
+    CUSTOMERID,
+    EMPLOYEEID,
+    -- Replace NULL or empty strings with 0 and cast to INTEGER to remove decimal points
+    CAST(COALESCE(NULLIF(SHIPPINGMETHODID, ''), 0) AS INTEGER) AS SHIPPINGMETHODID,
+    ORDERDATE,
+    SHIPDATE,
+    FREIGHTCHARGE
+FROM ORDERS_RAW;
+
+-- Step 2: Verify the cleaned table
+SELECT *
+FROM ORDERS_CLEANED
+
+-- this is the final orders table
+
+
+select * from order_details_raw
+ALTER TABLE order_details_raw RENAME TO order_details_CLEANED;
+select * from order_details_cleaned  --this is the final order details table
+
+
+select * from payments_raw
+
+-- Step 1: Create a cleaned version of the table without rows containing missing or blank values
+CREATE OR REPLACE TABLE PAYMENTS_CLEANED AS
+SELECT
+    PAYMENTID,
+    ORDERID,
+    PAYMENTMETHODID,
+    PAYMENTDATE,
+    PAYMENTAMOUNT
+FROM PAYMENTS_RAW
+WHERE PAYMENTID IS NOT NULL
+  AND ORDERID IS NOT NULL
+  AND PAYMENTMETHODID IS NOT NULL AND PAYMENTMETHODID != ''
+  AND PAYMENTDATE IS NOT NULL 
+  AND PAYMENTAMOUNT IS NOT NULL
+
+-- Step 2: Verify the cleaned table
+SELECT *
+FROM PAYMENTS_CLEANED
+
+
+
+
+
+
+--Hakim
+
+
+
+
+
+-- PRODUCTS_RAW
+SELECT * FROM PRODUCTS_RAW;
+
+-- Step 1: Validate the table for NULL or invalid values
+SELECT *
+FROM PRODUCTS_RAW
+WHERE ProductName IS NULL
+   OR Category IS NULL
+   OR Weight IS NULL;
+
+-- Step 2: If all data is valid, rename the table
+-- This table looks alright, so we can straightaway rename it as 'PRODUCTS_CLEANED'.
+ALTER TABLE PRODUCTS_RAW RENAME TO PRODUCTS_CLEANED;
+SELECT * FROM PRODUCTS_CLEANED; -- This is the final products table.
+
+-- PURCHASE_ORDERS_RAW
+SELECT * FROM PURCHASE_ORDERS_RAW;
+
+-- Step 1: Validate the table for NULL or invalid values
+SELECT *
+FROM PURCHASE_ORDERS_RAW
+WHERE PurchaseOrderID IS NULL
+   OR SupplierID IS NULL
+   OR ShippingMethodID IS NULL
+   OR OrderDate IS NULL;
+
+-- Step 2: If all data is valid, rename the table
+-- This table looks alright, so we can straightaway rename it as 'PURCHASE_ORDERS_CLEANED'.
+ALTER TABLE PURCHASE_ORDERS_RAW RENAME TO PURCHASE_ORDERS_CLEANED;
+SELECT * FROM PURCHASE_ORDERS_CLEANED; -- This is the final purchase orders table.
+
+-- SHIPPING_METHODS_RAW
+SELECT * FROM SHIPPING_METHODS_RAW;
+
+-- Step 1: Validate the table for NULL or invalid values
+SELECT *
+FROM SHIPPING_METHODS_RAW
+WHERE ShippingMethod IS NULL;
+
+-- Step 2: If all data is valid, rename the table
+-- This table looks alright, so we can straightaway rename it as 'SHIPPING_METHODS_CLEANED'.
+ALTER TABLE SHIPPING_METHODS_RAW RENAME TO SHIPPING_METHODS_CLEANED;
+SELECT * FROM SHIPPING_METHODS_CLEANED; -- This is the final shipping methods table.
+
+-- SUPPLIERS_RAW
+SELECT * FROM SUPPLIERS_RAW;
+
+-- Step 1: Validate the table for NULL or invalid values
+SELECT *
+FROM SUPPLIERS_RAW
+WHERE SupplierName IS NULL
+
+
+-- Step 2: If all data is valid, rename the table
+-- This table looks alright, so we can straightaway rename it as 'SUPPLIERS_CLEANED'.
+ALTER TABLE SUPPLIERS_RAW RENAME TO SUPPLIERS_CLEANED;
+SELECT * FROM SUPPLIERS_CLEANED; -- This is the final suppliers table.
+
+-- PAYMENTS_RAW
+SELECT * FROM PAYMENTS_RAW;
+
+-- Step 1: Create a cleaned version of the table without rows containing missing or blank values
+CREATE OR REPLACE TABLE PAYMENTS_CLEANED AS
+SELECT
+    PAYMENTID,
+    ORDERID,
+    PAYMENTMETHODID,
+    PAYMENTDATE,
+    PAYMENTAMOUNT
+FROM PAYMENTS_RAW
+WHERE PAYMENTID IS NOT NULL
+  AND ORDERID IS NOT NULL
+  AND PAYMENTMETHODID IS NOT NULL AND PAYMENTMETHODID != ''
+  AND PAYMENTDATE IS NOT NULL 
+  AND PAYMENTAMOUNT IS NOT NULL;
+
+-- Step 2: Verify the cleaned table
+SELECT * FROM PAYMENTS_CLEANED;
+-- This is the final payments table.
+
+-- ORDERS_RAW
+SELECT * FROM ORDERS_RAW;
+
+-- Step 1: Validate the table for NULL or invalid values
+SELECT *
+FROM ORDERS_RAW
+WHERE OrderID IS NULL
+   OR CustomerID IS NULL
+   OR EmployeeID IS NULL
+   OR ShippingMethodID IS NULL
+   OR OrderDate IS NULL;
+
+-- Step 2: If there are no significant issues, create a cleaned version of the table
+CREATE OR REPLACE TABLE ORDERS_CLEANED AS
+SELECT
+    OrderID,                -- Primary key
+    CustomerID,             -- Foreign key linking to Customers
+    EmployeeID,             -- Foreign key linking to Employees
+    -- Replace NULL or empty strings with 0 for ShippingMethodID
+    CAST(COALESCE(NULLIF(ShippingMethodID, ''), 0) AS INTEGER) AS ShippingMethodID,
+    OrderDate,              -- Ensure OrderDate is not NULL
+    ShipDate,               -- Optional but validated
+    FreightCharge           -- Ensure valid numeric values for FreightCharge
+FROM ORDERS_RAW;
+
+-- Step 3: Verify the cleaned table
+SELECT *
+FROM ORDERS_CLEANED
+LIMIT 10;
+
+-- This is the final orders table.
+
+
+-- PAYMENT_METHODS_RAW
+SELECT * FROM PAYMENT_METHODS_RAW;
+
+-- Step 1: Validate the table for NULL or invalid values
+SELECT *
+FROM PAYMENT_METHODS_RAW
+WHERE PaymentMethodID IS NULL
+   OR PaymentMethod IS NULL;
+
+-- Step 2: If there are no significant issues, rename the table
+-- This table looks alright, so we can straightaway rename it as 'PAYMENT_METHODS_CLEANED'.
+ALTER TABLE PAYMENT_METHODS_RAW RENAME TO PAYMENT_METHODS_CLEANED;
+
+-- Step 3: Verify the renamed table
+SELECT * FROM PAYMENT_METHODS_CLEANED;
+-- This is the final payment methods table.
+
+
+
+
+
+
+
+
+
+
+
+-- Combination of tables together to make bigger tables (ALEEM)
+
+SELECT * FROM CUSTOMERS_CLEANED
+SELECT * FROM ORDERS_CLEANED
+
+--Creates a merged version of both customer and orders table called customerOrders_cleaned
+CREATE
+OR REPLACE TABLE customerOrders_cleaned AS
+SELECT
+  orders_cleaned.*,
+  customers_cleaned.customerid AS customerid_customers,
+  customers_cleaned.country,
+  customers_cleaned.customerclass,
+  customers_cleaned.customername,
+  customers_cleaned.discontinued,
+  customers_cleaned.leadsource,
+  customers_cleaned.pricecategory,
+  customers_cleaned.region
+FROM
+  orders_cleaned
+  JOIN customers_cleaned ON orders_cleaned.customerid = customers_cleaned.customerid;
+
+SELECT * FROM customerOrders_cleaned;
+
+
+
+-- Merging customerOrders_cleaned with order_details via orderID, to form a new
+-- table called customerOrders_with_Details
+
+CREATE
+OR REPLACE TABLE customerOrders_with_Details AS
+SELECT
+  customerOrders_cleaned.*,
+  order_details_cleaned.orderid AS orderid_details,
+  order_details_cleaned.orderdetailid,
+  order_details_cleaned.productid,
+  order_details_cleaned.quantitysold,
+  order_details_cleaned.totalvalue,
+  order_details_cleaned.unitsalesprice
+FROM
+  customerOrders_cleaned
+  JOIN order_details_cleaned ON customerOrders_cleaned.orderid = order_details_cleaned.orderid;
+
+SELECT * FROM customerOrders_with_Details;
+
+--Showing total price of each order
+SELECT
+  customerOrders_with_details.orderid,
+  SUM(order_details_cleaned.totalvalue) AS total_price
+FROM
+  customerOrders_with_details
+  JOIN order_details_cleaned ON customerOrders_with_details.orderid = order_details_cleaned.orderid
+GROUP BY
+  customerOrders_with_details.orderid;
+
+
+--Merging payments_cleaned and payments_methods_cleaned
+CREATE
+OR REPLACE TABLE payments_with_methods AS
+SELECT
+  payments_cleaned.orderid,
+  payments_cleaned.paymentid,
+  payments_cleaned.paymentdate,
+  payments_cleaned.paymentamount,
+  payment_methods_cleaned.paymentmethod
+FROM
+  payments_cleaned
+  JOIN payment_methods_cleaned ON payments_cleaned.paymentmethodid = payment_methods_cleaned.paymentmethodid;
+
+  DELETE FROM
+  payments_cleaned
+WHERE
+  paymentamount IS NULL
+  OR paymentamount = '';
+
+SELECT * FROM payments_with_methods;
+
+
+
+
+
+--(HAKIM)
+
+-- Merge PAYMENTS_CLEANED with PURCHASE_ORDERS_CLEANED → PAYMENT_PURCHASE_ORDERS
+CREATE OR REPLACE TABLE PAYMENT_PURCHASE_ORDERS AS
+SELECT 
+    PY.PAYMENTID,
+    PY.PAYMENTDATE,
+    PY.PAYMENTAMOUNT,
+    PO.PURCHASEORDERID,
+    PO.ORDERDATE,
+    PO.SUPPLIERID,
+    PO.EMPLOYEEID,
+    PO.SHIPPINGMETHODID
+FROM PAYMENTS_CLEANED PY
+LEFT JOIN PURCHASE_ORDERS_CLEANED PO
+    ON PY.ORDERID = PO.PURCHASEORDERID;
+
+-- Merge PURCHASE_ORDERS_CLEANED with SUPPLIERS_CLEANED → PURCHASE_ORDERS_SUPPLIERS
+CREATE OR REPLACE TABLE PURCHASE_ORDERS_SUPPLIERS AS
+SELECT 
+    PO.PURCHASEORDERID,
+    PO.ORDERDATE,
+    PO.EMPLOYEEID,
+    PO.SHIPPINGMETHODID,
+    PO.SUPPLIERID,
+    S.SUPPLIERNAME
+FROM PURCHASE_ORDERS_CLEANED PO
+LEFT JOIN SUPPLIERS_CLEANED S
+    ON PO.SUPPLIERID = S.SUPPLIERID;
+
+-- Merge PURCHASE_ORDERS_CLEANED with PRODUCTS_CLEANED → PURCHASE_ORDERS_PRODUCTS
+CREATE OR REPLACE TABLE PURCHASE_ORDERS_PRODUCTS AS
+SELECT 
+    PO.PURCHASEORDERID,
+    PO.ORDERDATE,
+    PO.SUPPLIERID,
+    P.PRODUCTID,
+    P.PRODUCTNAME,
+    P.CATEGORY,
+    P.PURCHASEPRICE
+FROM PURCHASE_ORDERS_CLEANED PO
+LEFT JOIN PRODUCTS_CLEANED P
+    ON PO.PURCHASEORDERID = P.PRODUCTID; -- MODIFY IF THERE'S AN INTERMEDIATE TABLE
+
+-- Merge SUPPLIERS_CLEANED with PRODUCTS_CLEANED → SUPPLIERS_PRODUCTS
+CREATE OR REPLACE TABLE SUPPLIERS_PRODUCTS AS
+SELECT 
+    S.SUPPLIERID,
+    S.SUPPLIERNAME,
+    P.PRODUCTID,
+    P.PRODUCTNAME,
+    P.CATEGORY,
+    P.PURCHASEPRICE
+FROM SUPPLIERS_CLEANED S
+LEFT JOIN PRODUCTS_CLEANED P
+    ON S.SUPPLIERID = P.PRODUCTID; -- MODIFY IF THERE'S AN INTERMEDIATE TABLE
+
+-- Merge PRODUCTS_CLEANED with PAYMENTS_CLEANED → PRODUCTS_PAYMENTS
+CREATE OR REPLACE TABLE PRODUCTS_PAYMENTS AS
+SELECT 
+    PY.PAYMENTID,
+    PY.PAYMENTDATE,
+    PY.PAYMENTAMOUNT,
+    P.PRODUCTID,
+    P.PRODUCTNAME,
+    P.CATEGORY,
+    P.PURCHASEPRICE
+FROM PAYMENTS_CLEANED PY
+LEFT JOIN PURCHASE_ORDERS_CLEANED PO
+    ON PY.ORDERID = PO.PURCHASEORDERID
+LEFT JOIN PRODUCTS_CLEANED P
+    ON PO.PURCHASEORDERID = P.PRODUCTID; 
+
+-- Merge SUPPLIERS_CLEANED with PAYMENTS_CLEANED → SUPPLIERS_PAYMENTS
+CREATE OR REPLACE TABLE SUPPLIERS_PAYMENTS AS
+SELECT 
+    S.SUPPLIERID,
+    S.SUPPLIERNAME,
+    PY.PAYMENTID,
+    PY.PAYMENTDATE,
+    PY.PAYMENTAMOUNT
+FROM SUPPLIERS_CLEANED S
+LEFT JOIN PURCHASE_ORDERS_CLEANED PO
+    ON S.SUPPLIERID = PO.SUPPLIERID
+LEFT JOIN PAYMENTS_CLEANED PY
+    ON PO.PURCHASEORDERID = PY.ORDERID;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
